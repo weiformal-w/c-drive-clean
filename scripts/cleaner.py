@@ -47,13 +47,43 @@ def run_as_admin():
     except:
         return False
 
+def get_available_drives():
+    """获取系统中可用的驱动器列表"""
+    if sys.platform != 'win32':
+        return []
+
+    try:
+        import win32api
+        drives = []
+        for letter in 'ABCDEFGHIJKLMNOPQRSTUVWXYZ':
+            if win32api.GetDriveType(f"{letter}:") in (2, 3):  # 可移动驱动器或固定磁盘
+                drives.append(f"{letter}:")
+        return drives
+    except:
+        # 备用方案：使用常见驱动器
+        import os
+        drives = []
+        for letter in ['C', 'D', 'E', 'F']:
+            if os.path.exists(f"{letter}:"):
+                drives.append(f"{letter}:")
+        return drives
+
 class CDriveCleaner:
     """C盘清理器 - 带完整安全检查和备份功能"""
 
     def __init__(self, dry_run: bool = False, backup_enabled: bool = True, backup_path: str = None):
         self.dry_run = dry_run
         self.backup_enabled = backup_enabled
-        self.backup_path = Path(backup_path) if backup_path else Path.home() / "CleanerBackups" / datetime.now().strftime("%Y%m%d_%H%M%S")
+
+        # 智能选择备份路径：优先使用非C盘
+        if backup_path:
+            self.backup_path = Path(backup_path)
+        else:
+            # 尝试找到可用的非C盘驱动器
+            backup_base = self._find_best_backup_location()
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            self.backup_path = backup_base / "CleanerBackups" / timestamp
+
         self.backup_manifest = []
 
         # 安全路径 - 这些路径永远不会被清理
@@ -83,6 +113,33 @@ class CDriveCleaner:
             'on_complete': lambda msg: print(f"✅ {msg}"),
             'on_error': lambda msg: print(f"❌ {msg}")
         }
+
+    def _find_best_backup_location(self) -> Path:
+        """智能选择最佳备份位置"""
+        try:
+            # 获取可用驱动器
+            drives = get_available_drives()
+
+            # 优先选择非C盘驱动器
+            for drive in drives:
+                if drive != "C:":
+                    backup_path = Path(drive) / "CleanerBackups"
+                    # 测试是否可写
+                    try:
+                        backup_path.mkdir(parents=True, exist_ok=True)
+                        test_file = backup_path / ".write_test"
+                        test_file.touch()
+                        test_file.unlink()
+                        return Path(drive)
+                    except:
+                        continue
+
+            # 如果没有其他驱动器，使用用户主目录
+            return Path.home()
+
+        except:
+            # 备用：使用用户主目录
+            return Path.home()
 
     def is_safe_to_clean(self, file_path: Path) -> Tuple[bool, str]:
         """检查文件是否安全删除"""
@@ -430,7 +487,7 @@ class CDriveCleaner:
 
         if self.dry_run:
             report.append("\n⚠️ 这是模拟模式，没有实际删除文件")
-            report.append("如需实际清理，请使用 --actual-clean 参数")
+            report.append("如需实际清理，请移除 --dry-run 参数")
 
         return "\n".join(report)
 
@@ -447,8 +504,7 @@ def main():
     import argparse
 
     parser = argparse.ArgumentParser(description="C盘清理工具")
-    parser.add_argument("--dry-run", action="store_true", help="模拟模式，不实际删除")
-    parser.add_argument("--actual-clean", "--force", action="store_true", help="实际执行清理")
+    parser.add_argument("--dry-run", action="store_true", help="模拟模式，不实际删除（默认为实际清理）")
     parser.add_argument("--backup", action="store_true", default=True, help="启用备份（默认）")
     parser.add_argument("--no-backup", action="store_true", help="禁用备份")
     parser.add_argument("--backup-path", help="自定义备份路径")
@@ -475,8 +531,8 @@ def main():
         print("某些系统文件清理可能失败，建议以管理员身份运行")
         print("提示：使用 --admin 参数自动请求管理员权限\n")
 
-    # 确定清理模式
-    dry_run = args.dry_run or not args.actual_clean
+    # 确定清理模式：默认为实际清理，除非明确指定--dry-run
+    dry_run = args.dry_run
     backup_enabled = args.backup and not args.no_backup
 
     cleaner = CDriveCleaner(
