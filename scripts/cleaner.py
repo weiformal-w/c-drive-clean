@@ -511,25 +511,26 @@ def main():
     parser.add_argument("--basic", action="store_true", help="基础清理")
     parser.add_argument("--full", action="store_true", help="完整清理")
     parser.add_argument("--aggressive", action="store_true", help="激进清理")
-    parser.add_argument("--admin", action="store_true", help="请求管理员权限")
+    parser.add_argument("--no-admin", action="store_true", help="禁用自动请求管理员权限")
 
     args = parser.parse_args()
 
-    # 检查管理员权限
-    if args.admin and not is_admin():
+    # 默认自动检查管理员权限
+    if not args.no_admin and not is_admin():
+        print("🔐 检测到需要管理员权限以获得最佳清理效果...")
         print("正在请求管理员权限...")
         if run_as_admin():
-            print("已以管理员权限重新启动")
+            print("✅ 已以管理员权限重新启动")
             return
         else:
             print("⚠️ 无法获取管理员权限，某些清理操作可能失败")
             print("建议：右键点击命令提示符，选择'以管理员身份运行'")
+            print("提示：使用 --no-admin 参数跳过权限检查\n")
 
     # 显示权限状态
     if not is_admin():
         print("⚠️ 注意：未以管理员身份运行")
-        print("某些系统文件清理可能失败，建议以管理员身份运行")
-        print("提示：使用 --admin 参数自动请求管理员权限\n")
+        print("某些系统文件清理可能失败，清理效果可能受限\n")
 
     # 确定清理模式：默认为实际清理，除非明确指定--dry-run
     dry_run = args.dry_run
