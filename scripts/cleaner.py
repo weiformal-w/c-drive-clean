@@ -14,6 +14,7 @@ from datetime import datetime
 import sys
 import ctypes
 import subprocess
+import time
 
 # 设置标准输出编码为UTF-8
 if sys.platform == 'win32':
@@ -73,6 +74,14 @@ class CDriveCleaner:
             "freed_space": 0,
             "failed_deletions": 0,
             "backed_up_files": 0
+        }
+
+        # 进度跟踪
+        self.progress_callbacks = {
+            'on_start': lambda msg: print(f"🚀 {msg}"),
+            'on_progress': lambda msg, current, total: print(f"⏳ {msg}: {current}/{total}"),
+            'on_complete': lambda msg: print(f"✅ {msg}"),
+            'on_error': lambda msg: print(f"❌ {msg}")
         }
 
     def is_safe_to_clean(self, file_path: Path) -> Tuple[bool, str]:
@@ -239,7 +248,7 @@ class CDriveCleaner:
         }
 
     def _clean_directory(self, directory: Path, category: str, recursive: bool = True) -> Dict:
-        """清理指定目录"""
+        """清理指定目录 - 带进度显示"""
         if not directory.exists():
             return {
                 "directory": str(directory),
@@ -254,11 +263,32 @@ class CDriveCleaner:
         skipped_files = []
 
         try:
+            # 触发开始回调
+            self.progress_callbacks['on_start'](f"开始扫描: {directory}")
+
             items = list(directory.rglob("*")) if recursive else list(directory.glob("*"))
+            total_items = len(items)
+            processed_items = 0
+
+            # 触发进度回调
+            self.progress_callbacks['on_progress'](f"扫描目录: {directory.name}", 0, total_items)
+
+            last_progress_time = time.time()
 
             for item in items:
                 if not item.is_file():
                     continue
+
+                # 进度显示（每秒最多更新一次，避免过于频繁）
+                current_time = time.time()
+                if current_time - last_progress_time >= 1.0:
+                    processed_items += 1
+                    self.progress_callbacks['on_progress'](
+                        f"清理中: {directory.name}",
+                        processed_items,
+                        total_items
+                    )
+                    last_progress_time = current_time
 
                 # 安全检查
                 is_safe, reason = self.is_safe_to_clean(item)
@@ -294,7 +324,11 @@ class CDriveCleaner:
                     # 文件已被删除，忽略
                     continue
 
+            # 触发完成回调
+            self.progress_callbacks['on_complete'](f"完成清理: {directory.name} (释放 {self._format_size(freed_space)})")
+
         except Exception as e:
+            self.progress_callbacks['on_error'](f"清理失败: {directory} - {str(e)}")
             return {
                 "directory": str(directory),
                 "status": f"错误: {str(e)}",
@@ -454,27 +488,32 @@ def main():
     print("=== C盘清理工具 ===")
     print(f"模式: {'模拟模式' if dry_run else '实际清理'}")
     print(f"备份: {'启用' if backup_enabled else '禁用'}")
-    print(f"权限: {'管理员' if is_admin() else '普通用户'}\n")
+    print(f"权限: {'管理员' if is_admin() else '普通用户'}")
+    print(f"开始时间: {datetime.now().strftime('%H:%M:%S')}")
+    print("="*50)
 
     results = []
+    start_time = time.time()
 
     # 基础清理
-    print("正在清理临时文件...")
+    print("\n📋 [1/4] 清理临时文件...")
     results.append(cleaner.clean_temp_files())
 
-    print("正在清理浏览器缓存...")
+    print("\n📋 [2/4] 清理浏览器缓存...")
     results.append(cleaner.clean_browser_cache())
 
-    print("正在清理系统缓存...")
+    print("\n📋 [3/4] 清理系统缓存...")
     results.append(cleaner.clean_system_cache())
 
     # 完整清理
     if args.full:
-        print("正在清理应用缓存...")
+        print("\n📋 [4/4] 清理应用缓存...")
         results.append(cleaner.clean_application_cache())
 
-        print("正在清理回收站...")
+        print("\n📋 [5/5] 清理回收站...")
         results.append(cleaner.clean_recycle_bin())
+
+    elapsed_time = time.time() - start_time
 
     # 保存备份清单
     if backup_enabled and not dry_run:
@@ -482,6 +521,10 @@ def main():
         print(f"\n备份已保存到: {cleaner.backup_path}")
 
     # 生成报告
+    print("\n" + "="*50)
+    print(f"完成时间: {datetime.now().strftime('%H:%M:%S')}")
+    print(f"总耗时: {elapsed_time:.1f}秒")
+    print("="*50)
     print("\n" + cleaner.generate_report(results))
 
 if __name__ == "__main__":
