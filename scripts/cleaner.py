@@ -12,12 +12,39 @@ from typing import List, Dict, Tuple
 import json
 from datetime import datetime
 import sys
+import ctypes
+import subprocess
 
 # 设置标准输出编码为UTF-8
 if sys.platform == 'win32':
     import codecs
     sys.stdout = codecs.getwriter('utf-8')(sys.stdout.buffer, 'strict')
     sys.stderr = codecs.getwriter('utf-8')(sys.stderr.buffer, 'strict')
+
+def is_admin() -> bool:
+    """检查是否具有管理员权限"""
+    try:
+        return ctypes.windll.shell32.IsUserAnAdmin()
+    except:
+        return False
+
+def run_as_admin():
+    """尝试以管理员权限重新运行程序"""
+    if sys.platform != 'win32':
+        return False
+
+    try:
+        # 获取当前脚本路径
+        script = sys.executable
+        params = ' '.join(['"' + arg + '"' if ' ' in arg else arg for arg in sys.argv])
+
+        # 请求提升权限
+        ret = ctypes.windll.shell32.ShellExecuteW(
+            None, "runas", script, params, None, 1
+        )
+        return ret > 32
+    except:
+        return False
 
 class CDriveCleaner:
     """C盘清理器 - 带完整安全检查和备份功能"""
@@ -70,12 +97,13 @@ class CDriveCleaner:
         return True, "安全"
 
     def clean_temp_files(self) -> Dict:
-        """清理临时文件"""
+        """清理临时文件 - 增强版"""
         temp_paths = [
             Path(os.environ.get("TEMP", "")),
             Path(os.environ.get("TMP", "")),
             Path("C:\\Windows\\Temp"),
             Path("C:\\Windows\\Logs"),
+            Path(os.environ.get("LOCALAPPDATA", "")) / "Temp",
         ]
 
         results = []
@@ -93,10 +121,11 @@ class CDriveCleaner:
         }
 
     def clean_browser_cache(self) -> Dict:
-        """清理浏览器缓存"""
+        """清理浏览器缓存 - 增强版"""
         browser_paths = [
             Path.home() / "AppData" / "Local" / "Google" / "Chrome" / "User Data" / "Default" / "Cache",
             Path.home() / "AppData" / "Local" / "Microsoft" / "Edge" / "User Data" / "Default" / "Cache",
+            Path.home() / "AppData" / "Local" / "Mozilla" / "Firefox" / "Profiles",
         ]
 
         results = []
@@ -113,11 +142,63 @@ class CDriveCleaner:
             "total_files": sum(r.get("deleted_count", 0) for r in results)
         }
 
+    def clean_application_cache(self) -> Dict:
+        """清理应用程序缓存 - 新增功能"""
+        app_paths = [
+            # Adobe缓存
+            Path.home() / "AppData" / "Roaming" / "Adobe" / "Acrobat" / "DC",
+            # Office缓存
+            Path.home() / "AppData" / "Local" / "Microsoft" / "Office",
+            # Windows Defender
+            Path("C:\\ProgramData\\Microsoft\\Windows Defender\\Scans\\History\\CacheManager"),
+            # Windows Store缓存
+            Path.home() / "AppData" / "Local" / "Microsoft" / "WindowsStore",
+            # OneDrive缓存
+            Path.home() / "AppData" / "Local" / "Microsoft" / "OneDrive",
+            # Windows Media Player
+            Path.home() / "AppData" / "Local" / "Microsoft" / "Media Player",
+            # 搜索索引
+            Path("C:\\ProgramData\\Microsoft\\Windows\\Search"),
+            # 通知缓存
+            Path.home() / "AppData" / "Local" / "Microsoft" / "Windows" / "Notifications",
+            # 网络缓存
+            Path.home() / "AppData" / "Local" / "Microsoft" / "Windows" / "WebCache",
+        ]
+
+        results = []
+        for app_path in app_paths:
+            if app_path.exists():
+                result = self._clean_directory(app_path, "application_cache")
+                results.append(result)
+
+        return {
+            "category": "application_cache",
+            "description": "应用缓存",
+            "results": results,
+            "total_freed": sum(r.get("freed_space", 0) for r in results),
+            "total_files": sum(r.get("deleted_count", 0) for r in results)
+        }
+
     def clean_system_cache(self) -> Dict:
-        """清理系统缓存"""
+        """清理系统缓存 - 增强版，包含Windows更新缓存等高价值项目"""
         system_paths = [
+            # Windows更新缓存（通常最大）
             Path("C:\\Windows\\SoftwareDistribution\\Download"),
+            # 传递优化缓存（Windows更新临时文件）
+            Path("C:\\Windows\\SoftwareDistribution\\DeliveryOptimization"),
+            # 预读取文件
             Path("C:\\Windows\\Prefetch"),
+            # 缩略图缓存
+            Path.home() / "AppData" / "Local" / "Microsoft" / "Windows" / "Explorer",
+            # 内存转储文件
+            Path("C:\\Windows\\Memory.dmp"),
+            Path("C:\\Windows\\Minidump"),
+            # 字体缓存
+            Path("C:\\Windows\\System32\\FntCache.dat"),
+            # 安装程序缓存
+            Path("C:\\Windows\\Installer\\$PatchCache$"),
+            # 驱动备份
+            Path("C:\\Windows\\System32\\DriverStore\\FileRepository"),
         ]
 
         results = []
@@ -203,8 +284,14 @@ class CDriveCleaner:
                         deleted_count += 1
                         freed_space += file_size
 
-                except (PermissionError, FileNotFoundError) as e:
+                except PermissionError as e:
                     failed_count += 1
+                    # 记录权限失败的文件，用于后续提示
+                    if failed_count <= 5:  # 只显示前5个
+                        print(f"⚠️ 权限不足: {item}")
+                    continue
+                except FileNotFoundError as e:
+                    # 文件已被删除，忽略
                     continue
 
         except Exception as e:
@@ -334,8 +421,25 @@ def main():
     parser.add_argument("--basic", action="store_true", help="基础清理")
     parser.add_argument("--full", action="store_true", help="完整清理")
     parser.add_argument("--aggressive", action="store_true", help="激进清理")
+    parser.add_argument("--admin", action="store_true", help="请求管理员权限")
 
     args = parser.parse_args()
+
+    # 检查管理员权限
+    if args.admin and not is_admin():
+        print("正在请求管理员权限...")
+        if run_as_admin():
+            print("已以管理员权限重新启动")
+            return
+        else:
+            print("⚠️ 无法获取管理员权限，某些清理操作可能失败")
+            print("建议：右键点击命令提示符，选择'以管理员身份运行'")
+
+    # 显示权限状态
+    if not is_admin():
+        print("⚠️ 注意：未以管理员身份运行")
+        print("某些系统文件清理可能失败，建议以管理员身份运行")
+        print("提示：使用 --admin 参数自动请求管理员权限\n")
 
     # 确定清理模式
     dry_run = args.dry_run or not args.actual_clean
@@ -349,7 +453,8 @@ def main():
 
     print("=== C盘清理工具 ===")
     print(f"模式: {'模拟模式' if dry_run else '实际清理'}")
-    print(f"备份: {'启用' if backup_enabled else '禁用'}\n")
+    print(f"备份: {'启用' if backup_enabled else '禁用'}")
+    print(f"权限: {'管理员' if is_admin() else '普通用户'}\n")
 
     results = []
 
@@ -365,6 +470,9 @@ def main():
 
     # 完整清理
     if args.full:
+        print("正在清理应用缓存...")
+        results.append(cleaner.clean_application_cache())
+
         print("正在清理回收站...")
         results.append(cleaner.clean_recycle_bin())
 
