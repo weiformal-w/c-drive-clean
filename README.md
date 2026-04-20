@@ -16,30 +16,75 @@
 - **备份机制**: 删除前自动备份
 - **用户确认**: 重要操作前需明确同意
 
-### 🚀 斜杠命令
-- `/clean-analyze`: 分析C盘状态
-- `/clean-run`: 执行清理操作
-- `/clean-restore`: 恢复备份文件
-- `/clean-backups`: 管理备份文件
-- `/clean-scan`: 扫描大文件
+### 🎯 适用场景
+这个skill会在以下情况自动触发：
+- "清理C盘" / "释放空间"
+- "删除垃圾文件" / "清理临时文件"
+- "系统清理" / "磁盘优化"
+- "C盘红了" / "空间不足"
+- "大文件分析" / "空间占用"
 
 ## 使用方法
 
-### 基本使用
-1. **分析磁盘**: `/clean-analyze`
-2. **预览清理**: `/clean-run --dry-run`
-3. **执行清理**: `/clean-run --backup`
+### 方式1：通过Claude Code（推荐）
+只需要告诉Claude你需要清理C盘，skill会自动触发：
+- "清理C盘"
+- "释放磁盘空间" 
+- "C盘红了"
+- "删除临时文件"
+- "分析磁盘占用"
 
-### 清理模式
+Claude会自动执行合适的清理流程，无需手动输入命令。
+
+### 方式2：直接使用Python脚本
+```bash
+# 分析C盘状态
+python scripts/analyzer.py
+
+# 深度分析（包括大文件）
+python scripts/analyzer.py --large-files --min-size 100
+
+# 模拟清理（安全预览）
+python scripts/cleaner.py --basic --dry-run
+
+# 实际清理并备份
+python scripts/cleaner.py --basic --backup
+
+# 扫描大文件
+python scripts/scanner.py --min-size 100 --limit 20
+
+# 管理备份
+python scripts/backup_manager.py --action list
+python scripts/backup_manager.py --action restore --index 0
+```
+
+### 方式3：使用批处理文件（Windows）
+```bash
+# 进入skill目录
+cd C:\Users\lenovo\.claude\skills\c-drive-cleaner
+
+# 分析C盘
+.\clean.cmd analyze
+
+# 模拟清理
+.\clean.cmd clean --basic --dry-run
+
+# 实际清理
+.\clean.cmd clean --basic
+
+# 扫描大文件
+.\clean.cmd scan --min-size 200
+```
+
+### 清理模式参数
 - `--basic`: 基础清理（临时文件、浏览器缓存）
 - `--full`: 完整清理（包括应用缓存）
 - `--aggressive`: 激进清理（更多文件类型）
 
-### 安全选项
-- `--dry-run`: 模拟模式，仅预览
+### 安全选项参数
+- `--dry-run`: 模拟模式，仅预览不删除
 - `--backup`: 启用备份（推荐）
-- `--no-backup`: 禁用备份
-- `--backup-path`: 自定义备份位置
+- `--actual-clean`: 实际执行清理（默认是模拟模式）
 
 ## 安装说明
 
@@ -76,21 +121,20 @@ c-drive-cleaner/
 ### 日常清理
 ```bash
 # 每月例行清理
-/clean-analyze
-/clean-run --full --backup
+python scripts/analyzer.py --large-files
+python scripts/cleaner.py --full --backup --actual-clean
 ```
 
 ### 应急清理
 ```bash
-# C盘红了
-/clean-analyze --deep
-/clean-run --aggressive --backup
+# C盘红了 - 紧急释放空间
+python scripts/cleaner.py --aggressive --backup --actual-clean
 ```
 
 ### 大文件分析
 ```bash
 # 找出占用空间的文件
-/clean-scan --size 200 --top 10
+python scripts/scanner.py --min-size 100 --limit 20 --suggest
 ```
 
 ## 安全说明
@@ -103,9 +147,14 @@ c-drive-cleaner/
 
 ### 应急恢复
 ```bash
-# 如果清理后出现问题
-/clean-backups list
-/clean-restore 0
+# 查看备份列表
+python scripts/backup_manager.py --action list
+
+# 恢复最新备份
+python scripts/backup_manager.py --action restore --index 0
+
+# 清理旧备份，保留最近3个
+python scripts/backup_manager.py --action clean --keep 3 --confirm
 ```
 
 ## 技术架构
