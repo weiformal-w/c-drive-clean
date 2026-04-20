@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# 清理工具生成的临时文件
+analysis_results.json
+large_files_scan.json
+CleanerBackups/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# 操作系统
+.DS_Store
+Thumbs.db
+
+# 评估结果
+evals/results/
+evals/*.log
